@@ -1,0 +1,12 @@
+{application, erlzquad,
+ [
+  {description, "A quadtree with Z-order curve indexing"},
+  {vsn, git},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  %{mod, { erlzquad_app, []}},
+  {env, []}
+ ]}.
