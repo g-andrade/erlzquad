@@ -19,7 +19,7 @@ __Authors:__ Guilherme Andrade ([`erlzquad(at)gandrade(dot)net`](mailto:erlzquad
 
 * Objects can be anything; a bounding-box -fetching function, which receives an object and returns a 4-tuple `{Left, Bottom, Right, Top}` is therefore a mandatory argument when adding;
 * Coordinates are, for now, restricted to non-negative values that start on {0, 0} and may go up to the specified width and height;
-* Explicit Z-index calculation code is included for levels up to 8 (inclusive); from that point we recurse and the whole thing becomes slower than a turtle.
+* Explicit Z-index calculation code is included for levels up to 8 (inclusive); from that point on we recurse and the whole thing becomes slower than a turtle.
 
 ```erlang
 
