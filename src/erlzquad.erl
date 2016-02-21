@@ -1,6 +1,12 @@
 -module(erlzquad).
--compile(inline).
 -author('Guilherme Andrade <erlzquad(at)gandrade(dot)net>').
+
+-ifdef(COMPILE_NATIVE_ERLZQUAD).
+% LOLSPEED ™
+-compile([inline, inline_list_funcs, native, {hipe, o3}]).
+-else.
+-compile([inline, inline_list_funcs]).
+-endif.
 
 %% ------------------------------------------------------------------
 %% API Function Exports

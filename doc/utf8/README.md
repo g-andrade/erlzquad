@@ -34,6 +34,10 @@ Results2 = erlzquad:query_area(2000, 1500, 0, 0, Q2).  % 0 results: []
 ```
 
 
+### <a name="Concerning_native_compilation_(HiPE)">Concerning native compilation (HiPE)</a> ###
+
+Define 'COMPILE_NATIVE_ERLZQUAD' (e.g. "rebar compile -DCOMPILE_NATIVE_ERLZQUAD") for LOLSPEED™ in case that's your thing.
+
 
 ## Modules ##
 

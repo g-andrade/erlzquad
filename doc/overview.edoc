@@ -22,3 +22,6 @@ Q2 = erlzquad:add_objects([Object], GetBox, Q1),
 Results1 = erlzquad:query_area(0, 0, 2000, 1500, Q2), % 1 result:  [#square{...}]
 Results2 = erlzquad:query_area(2000, 1500, 0, 0, Q2).  % 0 results: []
 </pre>
+
+== Concerning native compilation (HiPE) ==
+Define 'COMPILE_NATIVE_ERLZQUAD' (e.g. "rebar compile -DCOMPILE_NATIVE_ERLZQUAD") for LOLSPEED™ in case that's your thing.
