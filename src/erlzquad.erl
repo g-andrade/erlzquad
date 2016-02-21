@@ -14,11 +14,11 @@
 %% Macro Definitions
 %% ------------------------------------------------------------------
 
--define(ZQUADRANT_TOP_LEFT,     2#00).
--define(ZQUADRANT_TOP_RIGHT,    2#01).
--define(ZQUADRANT_BOTTOM_LEFT,  2#10).
--define(ZQUADRANT_BOTTOM_RIGHT, 2#11).
--define(QUAD_NODE_CHILDREN_OFFSET, #quad_node.top_left).
+-define(ZQUADRANT_BOTTOM_LEFT,  2#00).
+-define(ZQUADRANT_BOTTOM_RIGHT, 2#01).
+-define(ZQUADRANT_TOP_LEFT,     2#10).
+-define(ZQUADRANT_TOP_RIGHT,    2#11).
+-define(QUAD_NODE_CHILDREN_OFFSET, #quad_node.bottom_left).
 
 -define(IS_POS_NUMBER(V), (is_number((V)) andalso (V) > 0)).
 -define(IS_NONNEG_INTEGER(V), (is_integer((V)) andalso (V) >= 0)).
@@ -28,10 +28,10 @@
 %% ------------------------------------------------------------------
 
 -record(quad_node, {
-          top_left :: quad_node() | undefined,
-          top_right :: quad_node() | undefined,
           bottom_left :: quad_node() | undefined,
           bottom_right :: quad_node() | undefined,
+          top_left :: quad_node() | undefined,
+          top_right :: quad_node() | undefined,
           bucket = [] :: [term()]
          }).
 -type quad_node() :: #quad_node{}.
@@ -56,7 +56,8 @@
 
 -type zquadrant() :: 2#00 | 2#01 | 2#10 | 2#11.
 -type single_rabbit_hole() :: [zquadrant()].
--type split_rabbit_hole() :: [{Lower :: zquadrant(), Higher :: zquadrant()}].
+-type tree_rabbit_hole() :: [{Quadrant :: zquadrant(), SubRabbitHole :: [any()]}].
+-type nonempty_tree_rabbit_hole() :: [{Quadrant :: zquadrant(), tree_rabbit_hole()}, ...].
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -80,7 +81,9 @@ add_objects(Objects, GetBoxFun, QTree) ->
                depth = Depth} = QTree,
     InvTreeWidth = 1 / TreeWidth,
     InvTreeHeight = 1 / TreeHeight,
-    WithZees = [{object_zees(Object, Depth, InvTreeWidth, InvTreeHeight, GetBoxFun), Object}
+    MaxX = TreeWidth - 1,
+    MaxY = TreeHeight - 1,
+    WithZees = [{object_zees(Object, Depth, MaxX, InvTreeWidth, MaxY, InvTreeHeight, GetBoxFun), Object}
                 || Object <- Objects],
     Sorted = lists:keysort(1, WithZees),
     add_sorted_zeed_objects(Sorted, QTree).
@@ -95,9 +98,15 @@ query_area(Left, Bottom, Right, Top, QTree) ->
                depth = Depth} = QTree,
     InvTreeWidth = 1 / TreeWidth,
     InvTreeHeight = 1 / TreeHeight,
-    LowBitZ = z_to_bitz( coords_to_z(Left, Bottom, InvTreeWidth, InvTreeHeight, Depth), Depth),
-    HighBitZ = z_to_bitz( coords_to_z(Right, Top, InvTreeWidth, InvTreeHeight, Depth), Depth),
-    RabbitHole = split_rabbit_hole(LowBitZ, HighBitZ),
+    MaxX = TreeWidth - 1,
+    MaxY = TreeHeight - 1,
+    ZList = coords_to_zlist(cull(Left, 0, MaxX),
+                            cull(Bottom, 0, MaxY),
+                            cull(Right, 0, MaxX),
+                            cull(Top, 0, MaxY),
+                            InvTreeWidth, InvTreeHeight, Depth),
+    BitZList = [z_to_bitz(Z, Depth) || Z <- ZList],
+    RabbitHole = tree_rabbit_hole(BitZList),
     deep_query_area(RabbitHole, RootNode).
 
 %% ------------------------------------------------------------------
@@ -120,13 +129,18 @@ new_node(Depth) ->
 %% adding
 %%
 -spec object_zees(Object :: term(), Depth :: non_neg_integer(),
-                  InvTreeWidth :: float(), InvTreeHeight :: float(),
+                  MaxX :: number(), InvTreeWidth :: float(),
+                  MaxY :: number(), InvTreeHeight :: float(),
                   GetBoxFun :: object_box_fun())
         -> {LowZ :: non_neg_integer(), HighZ :: non_neg_integer()}.
-object_zees(Object, Depth, InvTreeWidth, InvTreeHeight, GetBoxFun) ->
-    {Left, Right, Bottom, Top} = GetBoxFun(Object),
-    LowZ = coords_to_z(Left, Bottom, InvTreeWidth, InvTreeHeight, Depth),
-    HighZ = coords_to_z(Right, Top, InvTreeWidth, InvTreeHeight, Depth),
+object_zees(Object, Depth, MaxX, InvTreeWidth, MaxY, InvTreeHeight, GetBoxFun) ->
+    {Left, Bottom, Right, Top} = GetBoxFun(Object),
+    LowZ = coords_to_z(cull(Left, 0, MaxX),
+                       cull(Bottom, 0, MaxY),
+                       InvTreeWidth, InvTreeHeight, Depth),
+    HighZ = coords_to_z(cull(Right, 0, MaxX),
+                        cull(Top, 0, MaxY),
+                        InvTreeWidth, InvTreeHeight, Depth),
     {LowZ, HighZ}.
 
 -spec add_sorted_zeed_objects(ZeedObjects :: [{{LowZ :: non_neg_integer(), HighZ :: non_neg_integer()},
@@ -178,65 +192,26 @@ deep_add_objects(Objects, [Quadrant | NextQuadrants], QNode) ->
 %%
 %% querying
 %%
--spec deep_query_area(RabbitHole :: split_rabbit_hole() | single_rabbit_hole(),
+-spec deep_query_area(RabbitHole :: tree_rabbit_hole(),
                       quad_node()) -> Objects :: [term()].
-deep_query_area([]=_RabbitHole, #quad_node{ bucket = Bucket, top_left = undefined }) ->
+deep_query_area([] = _RabbitHole, #quad_node{ bucket = Bucket, top_left = undefined }) ->
     %
     % Leaf node.
     %
     Bucket;
 
-deep_query_area([]=RabbitHole,  #quad_node{ bucket = Bucket } = QNode) ->
+deep_query_area([_|_] = RabbitHole,  #quad_node{ bucket = Bucket } = QNode) ->
     %
-    % The end of the line; include everything from this point on.
+    % Intermediate node.
     %
-    #quad_node{top_left = TopLeft,
-               top_right = TopRight,
-               bottom_left = BottomLeft,
-               bottom_right = BottomRight} = QNode,
-    (Bucket ++
-     deep_query_area(RabbitHole, TopLeft) ++
-     deep_query_area(RabbitHole, TopRight) ++
-     deep_query_area(RabbitHole, BottomLeft) ++
-     deep_query_area(RabbitHole, BottomRight));
-
-deep_query_area([{?ZQUADRANT_BOTTOM_LEFT, ?ZQUADRANT_TOP_RIGHT} | _SubQuadrants], QNode) ->
-    %
-    % Woah! The search area encompasses the whole subtree; give up on being picky.
-    %
-    deep_query_area([], QNode);
-
-deep_query_area([{Quadrant, Quadrant} | SubQuadrants], #quad_node{ bucket = Bucket } = QNode) ->
-    %
-    % Split rabbit hole still going the same way
-    %
-    ChildPos = Quadrant + ?QUAD_NODE_CHILDREN_OFFSET,
-    Child = element(ChildPos, QNode),
-    (Bucket ++
-     deep_query_area(SubQuadrants, Child));
-
-deep_query_area([{LowerQuadrant, HigherQuadrant} | SubQuadrants],
-                #quad_node{ bucket = Bucket } = QNode) ->
-    %
-    % Different quadrants? Time to split up.
-    %
-    LowerChildPos = LowerQuadrant + ?QUAD_NODE_CHILDREN_OFFSET,
-    HigherChildPos = HigherQuadrant + ?QUAD_NODE_CHILDREN_OFFSET,
-    LowerChild = element(LowerChildPos, QNode),
-    HigherChild = element(HigherChildPos, QNode),
-    {LowerSubQuadrants, HigherSubQuadrants} = lists:unzip(SubQuadrants),
-    (Bucket ++
-     deep_query_area(LowerSubQuadrants, LowerChild) ++
-     deep_query_area(HigherSubQuadrants, HigherChild));
-
-deep_query_area([Quadrant | SubQuadrants], #quad_node{ bucket = Bucket } = QNode) ->
-    %
-    % Back to single rabbit hole path; merrily go along.
-    %
-    ChildPos = Quadrant + ?QUAD_NODE_CHILDREN_OFFSET,
-    Child = element(ChildPos, QNode),
-    (Bucket
-     ++ deep_query_area(SubQuadrants, Child)).
+    lists:foldl(
+      fun ({Quadrant, SubRabbitHole}, ObjectsAcc) ->
+              ChildPos = Quadrant + ?QUAD_NODE_CHILDREN_OFFSET,
+              Child = element(ChildPos, QNode),
+              deep_query_area(SubRabbitHole, Child) ++ ObjectsAcc
+      end,
+      Bucket,
+      RabbitHole).
 
 %%
 %% Z-order curve!
@@ -246,10 +221,20 @@ deep_query_area([Quadrant | SubQuadrants], #quad_node{ bucket = Bucket } = QNode
         -> non_neg_integer().
 coords_to_z(X, Y, InvMaxX, InvMaxY, Depth) ->
     MaxCoordZ = (1 bsl Depth),
-    TruncMask = MaxCoordZ - 1,
-    ZX = trunc(X * InvMaxX * MaxCoordZ) band TruncMask,
-    ZY = trunc(Y * InvMaxY * MaxCoordZ) band TruncMask,
+    ZX = trunc(X * InvMaxX * MaxCoordZ),
+    ZY = trunc(Y * InvMaxY * MaxCoordZ),
     interleave(ZX, ZY, Depth).
+
+coords_to_zlist(Left, Bottom, Right, Top, InvMaxX, InvMaxY, Depth) ->
+    MaxCoordZ = (1 bsl Depth),
+    LeftZ = trunc(Left * InvMaxX * MaxCoordZ),
+    BottomZ = trunc(Bottom * InvMaxY * MaxCoordZ),
+    RightZ = trunc(Right * InvMaxX * MaxCoordZ),
+    TopZ = trunc(Top * InvMaxY * MaxCoordZ),
+    lists:sort([interleave(ZX, ZY, Depth)
+                || ZX <- lists:seq(LeftZ, RightZ),
+                   ZY <- lists:seq(BottomZ, TopZ)]).
+
 
 -spec interleave(ZX :: non_neg_integer(), ZY :: non_neg_integer(), Depth :: non_neg_integer())
         -> non_neg_integer().
@@ -320,10 +305,24 @@ single_rabbit_hole(_Z1, _Z2) ->
     % The end of the line; encompass everything from this point on.
     [].
 
--spec split_rabbit_hole(Z1 :: bitstring(), Z2 :: bitstring()) -> split_rabbit_hole().
-split_rabbit_hole(<<>>, <<>>) ->
-    [];
-split_rabbit_hole(<<LowerQuadrant:2/unit:1,  SubZ1/bitstring>>,
-                  <<HigherQuadrant:2/unit:1, SubZ2/bitstring>>) ->
-    Step = {LowerQuadrant, HigherQuadrant},
-    [Step | split_rabbit_hole(SubZ1, SubZ2)].
+-spec tree_rabbit_hole(ZList :: [bitstring()]) -> tree_rabbit_hole().
+tree_rabbit_hole([<<Quadrant:2/unit:1, SubQuadrants/bitstring>> | NextZees]) ->
+    tree_rabbit_hole_recur(NextZees, Quadrant, [SubQuadrants]);
+tree_rabbit_hole(_) ->
+    [].
+
+-spec tree_rabbit_hole_recur(ZList :: [bitstring()], Quadrant :: zquadrant(),
+                             GroupSoFar :: [bitstring(), ...]) -> nonempty_tree_rabbit_hole().
+tree_rabbit_hole_recur([<<Quadrant:2/unit:1, SubQuadrants/bitstring>> | NextZees],
+                       Quadrant, GroupSoFar) ->
+    tree_rabbit_hole_recur(NextZees, Quadrant, [SubQuadrants | GroupSoFar]);
+tree_rabbit_hole_recur([<<Quadrant:2/unit:1, SubQuadrants/bitstring>> | NextZees],
+                   PrevQuadrant, PrevGroup) ->
+    Acc = [{PrevQuadrant, tree_rabbit_hole(PrevGroup)}],
+    Acc ++ tree_rabbit_hole_recur(NextZees, Quadrant, [SubQuadrants]);
+tree_rabbit_hole_recur([], PrevQuadrant, PrevGroup) ->
+    [{PrevQuadrant, tree_rabbit_hole(PrevGroup)}].
+
+-spec cull(Value :: number(), Min :: number(), Max :: number()) -> number().
+cull(Value, Min, Max) ->
+    max(Min, min(Max, Value)).
